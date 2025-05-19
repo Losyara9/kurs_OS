@@ -1,60 +1,96 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net"
 	"os"
-	"time"
+	"strings"
+	"sync"
 )
 
-func handleConnection(conn net.Conn, logFile *os.File) {
+var (
+	logFiles = make(map[string]*os.File)
+	mu       sync.Mutex
+)
+
+func getLogFile(serverTag string) (*os.File, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if file, exists := logFiles[serverTag]; exists {
+		return file, nil
+	}
+
+	err := os.MkdirAll("logs", os.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+
+	// Открываем файл логов для server1 или server2
+	filename := fmt.Sprintf("logs/%s.log", serverTag)
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	logFiles[serverTag] = file
+	return file, nil
+}
+
+func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		msg := fmt.Sprintf("[%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), scanner.Text())
-		log.Print(msg)
-		if _, err := logFile.WriteString(msg); err != nil {
-			log.Printf("Write error: %v", err)
+
+	buf := make([]byte, 1024)
+
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			return
 		}
+
+		msg := string(buf[:n])
+		tag := extractServerTag(msg)
+		if tag == "" {
+			tag = "unknown"
+		}
+
+		file, err := getLogFile(tag)
+		if err != nil {
+			log.Println("error opening log file:", err)
+			continue
+		}
+
+		file.WriteString(msg + "\n")
 	}
 }
 
+func extractServerTag(msg string) string {
+	// Ищем [server1] или [server2]
+	if strings.Contains(msg, "[server1]") {
+		return "server1"
+	} else if strings.Contains(msg, "[server2]") {
+		return "server2"
+	}
+	return ""
+}
+
 func main() {
-	// Создаем директорию для логов если её нет
-	if err := os.MkdirAll("/app/logs", 0755); err != nil {
-		log.Fatalf("Failed to create logs directory: %v", err)
-	}
-
-	// Создаем файл логов
-	logFile, err := os.OpenFile("/app/logs/server.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatalf("Failed to create log file: %v", err)
-	}
-	defer logFile.Close()
-
-	// Проверка записи
-	if _, err := logFile.WriteString("Logger initialized at " + time.Now().Format(time.RFC3339) + "\n"); err != nil {
-		log.Fatalf("Can't write to log file: %v", err)
-	}
-
 	ln, err := net.Listen("tcp", ":8083")
 	if err != nil {
-		logFile.WriteString("Failed to start server: " + err.Error() + "\n")
 		log.Fatal(err)
 	}
 	defer ln.Close()
 
-	log.Printf("Logger server started on :8083")
-	logFile.WriteString("Server started\n")
+	log.Println("Log server started on port 9000")
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Printf("Accept error: %v", err)
+			log.Println(err)
 			continue
 		}
-		go handleConnection(conn, logFile)
+
+		go handleConnection(conn)
 	}
 }
