@@ -3,6 +3,7 @@ services:
     build: ./server1
     ports:
       - "18081:8081"
+    restart: on-failure
     depends_on:
       logger:
         condition: service_started
@@ -24,6 +25,7 @@ services:
     build: ./server2
     ports:
       - "18082:8082"
+    restart: on-failure
     depends_on:
       logger:
         condition: service_started
@@ -39,6 +41,7 @@ services:
     build: ./logger_server
     ports:
       - "8083:8083"
+    restart: on-failure
     volumes:
       - ./logs:/app/logs  # Только монтируем директорию logs
     healthcheck:
@@ -58,6 +61,7 @@ services:
         condition: service_healthy
     stdin_open: true
     tty: true
+    restart: on-failure
     environment:
       - TERM=xterm-color
     networks:
