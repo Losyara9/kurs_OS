@@ -1,0 +1,68 @@
+services:
+  server1:
+    build: ./server1
+    ports:
+      - "18081:8081"
+    depends_on:
+      logger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "18081"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    networks:
+      - my_network
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev:/dev
+
+  server2:
+    build: ./server2
+    ports:
+      - "18082:8082"
+    depends_on:
+      logger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "18082"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    networks:
+      - my_network
+
+  logger:
+    build: ./logger_server
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./logs:/app/logs  # Только монтируем директорию logs
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8083"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    networks:
+      - my_network
+
+  client:
+    build: ./client
+    depends_on:
+      server1:
+        condition: service_healthy
+      server2:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    environment:
+      - TERM=xterm-color
+    networks:
+      - my_network
+
+networks:
+  my_network:
+    driver: bridge
